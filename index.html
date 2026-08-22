@@ -18,7 +18,7 @@
   #empty{padding:2rem 1rem;color:#777}
 </style>
 <header>
-  <input id="q" type="search" placeholder="Search emoji… (e.g. cat, heart, pizza)" autofocus>
+  <input id="q" type="search" placeholder="Search emoji… (e.g. science, happy, pizza)" autofocus>
   <select id="tone" title="Skin tone">
     <option value="">✋</option><option value="1F3FB">✋🏻</option><option value="1F3FC">✋🏼</option>
     <option value="1F3FD">✋🏽</option><option value="1F3FE">✋🏾</option><option value="1F3FF">✋🏿</option>
@@ -49,7 +49,11 @@ function renders(e){
 function copy(t){return navigator.clipboard.writeText(t).catch(()=>{
   const ta=document.body.appendChild(document.createElement('textarea'));ta.value=t;ta.select();document.execCommand('copy');ta.remove()})}
 
-fetch('emoji-test.txt').then(r=>r.text()).then(txt=>{
+// CLDR keywords (annotations-en.xml, cp keyed w/o FE0F) so "science" finds 🔬🧬🧪, not just exact names.
+// ponytail: ~330 gendered/ZWJ variants (man: red hair…) only in annotationsDerived (550KB); they match by name, skip.
+const KW=fetch('annotations-en.xml').then(r=>r.text()).then(t=>Object.fromEntries([...new DOMParser().parseFromString(t,'text/xml')
+  .querySelectorAll('annotation:not([type])')].map(a=>[a.getAttribute('cp'),a.textContent])));
+Promise.all([fetch('emoji-test.txt').then(r=>r.text()),KW]).then(([txt,kw])=>{
   const all=[];let group='';
   for(const line of txt.split('\n')){
     if(line.startsWith('# group: ')){group=line.slice(9).trim();continue}
@@ -58,7 +62,8 @@ fetch('emoji-test.txt').then(r=>r.text()).then(txt=>{
     const [,e,name]=m;
     if(BLOCKED.some(b=>name.toLowerCase().includes(b)))continue;
     const tones=[...new Set((e.match(TONES)||[]).map(t=>t.codePointAt(0).toString(16).toUpperCase()))];
-    all.push({e,name,group,tones,base:e.replace(TONES,'').replace(/\uFE0F/g,'')});
+    const base=e.replace(TONES,'').replace(/\uFE0F/g,'');
+    all.push({e,name,group,tones,base,s:(name+' | '+(kw[base]||'')).toLowerCase()});
   }
   const hasVariant=new Set(all.filter(x=>x.tones.length).map(x=>x.base));
   const ok=all.filter(x=>renders(x.e));
@@ -72,7 +77,7 @@ fetch('emoji-test.txt').then(r=>r.text()).then(txt=>{
     let n=0;
     for(const g of groups)grids[g].innerHTML='';
     for(const x of ok){
-      if(q&&!x.name.toLowerCase().includes(q))continue;
+      if(q&&!x.s.includes(q))continue;
       if(tone?(x.tones.length?!(x.tones.length===1&&x.tones[0]===tone):hasVariant.has(x.base)):x.tones.length)continue;
       const b=document.createElement('button');b.textContent=x.e;b.title=x.name;grids[x.group].append(b);n++;
     }
