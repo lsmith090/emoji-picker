@@ -1,0 +1,87 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Emoji Picker</title>
+<style>
+  body{margin:0;font-family:system-ui,sans-serif;background:#fafafa;color:#222}
+  header{position:sticky;top:0;background:#fff;border-bottom:1px solid #ddd;padding:.6rem 1rem;display:flex;gap:.6rem;flex-wrap:wrap;align-items:center}
+  header input{flex:1;min-width:12rem;font-size:1.1rem;padding:.5rem .7rem;border:1px solid #bbb;border-radius:.5rem}
+  header select{font-size:1.3rem;padding:.3rem;border:1px solid #bbb;border-radius:.5rem;background:#fff}
+  nav{display:flex;gap:.3rem;flex-wrap:wrap;padding:.5rem 1rem}
+  nav a{font-size:.85rem;padding:.25rem .6rem;border-radius:1rem;background:#eee;color:#222;text-decoration:none}
+  h2{font-size:1rem;margin:1.2rem 1rem .4rem;color:#555}
+  .grid{display:flex;flex-wrap:wrap;gap:.15rem;padding:0 .8rem}
+  .grid button{font-size:2rem;line-height:1;width:2.8rem;height:2.8rem;border:0;border-radius:.5rem;background:none;cursor:pointer;font-family:"Segoe UI Emoji","Noto Color Emoji","Apple Color Emoji",sans-serif}
+  .grid button:hover,.grid button:focus{background:#e3ecff;outline:none}
+  #toast{position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:.6rem 1.2rem;border-radius:2rem;font-size:1.1rem;opacity:0;transition:opacity .2s;pointer-events:none}
+  #toast.show{opacity:1}
+  #empty{padding:2rem 1rem;color:#777}
+</style>
+<header>
+  <input id="q" type="search" placeholder="Search emoji… (e.g. cat, heart, pizza)" autofocus>
+  <select id="tone" title="Skin tone">
+    <option value="">✋</option><option value="1F3FB">✋🏻</option><option value="1F3FC">✋🏼</option>
+    <option value="1F3FD">✋🏽</option><option value="1F3FE">✋🏾</option><option value="1F3FF">✋🏿</option>
+  </select>
+</header>
+<nav id="nav"></nav>
+<main id="main"></main>
+<div id="toast">Copied!</div>
+<script>
+// Edit this list to hide emoji by (partial) name. Applies to all skin-tone variants.
+const BLOCKED = ['middle finger','eggplant','peach','sweat droplets','water pistol','pistol','cigarette',
+  'beer','clinking','wine glass','cocktail','tropical drink','tumbler','bottle with popping cork'];
+const TONES = /\u{1F3FB}|\u{1F3FC}|\u{1F3FD}|\u{1F3FE}|\u{1F3FF}/gu;
+
+// ponytail: canvas color test. Catches tofu boxes, Windows flags (render as letters), and
+// unsupported ZWJ sequences (split into several glyphs, so measure too wide). Not airtight; good enough.
+const cv=document.createElement('canvas'),cx=cv.getContext('2d',{willReadFrequently:true});
+cv.width=cv.height=20;cx.font='16px "Segoe UI Emoji","Noto Color Emoji","Apple Color Emoji",sans-serif';cx.textBaseline='top';
+const W1=cx.measureText('😀').width*1.5;
+function renders(e){
+  if(cx.measureText(e).width>W1)return false;
+  cx.clearRect(0,0,20,20);cx.fillText(e,0,0);
+  const d=cx.getImageData(0,0,20,20).data;
+  for(let i=0;i<d.length;i+=4)if(d[i+3]&&(d[i]!==d[i+1]||d[i+1]!==d[i+2]))return true;
+  return false;
+}
+
+function copy(t){return navigator.clipboard.writeText(t).catch(()=>{
+  const ta=document.body.appendChild(document.createElement('textarea'));ta.value=t;ta.select();document.execCommand('copy');ta.remove()})}
+
+fetch('emoji-test.txt').then(r=>r.text()).then(txt=>{
+  const all=[];let group='';
+  for(const line of txt.split('\n')){
+    if(line.startsWith('# group: ')){group=line.slice(9).trim();continue}
+    if(!line.includes('; fully-qualified')||group==='Component')continue;
+    const m=line.match(/#\s(\S+)\sE[\d.]+\s(.+)$/);if(!m)continue;
+    const [,e,name]=m;
+    if(BLOCKED.some(b=>name.toLowerCase().includes(b)))continue;
+    const tones=[...new Set((e.match(TONES)||[]).map(t=>t.codePointAt(0).toString(16).toUpperCase()))];
+    all.push({e,name,group,tones,base:e.replace(TONES,'').replace(/\uFE0F/g,'')});
+  }
+  const hasVariant=new Set(all.filter(x=>x.tones.length).map(x=>x.base));
+  const ok=all.filter(x=>renders(x.e));
+  const groups=[...new Set(ok.map(x=>x.group))];
+  nav.innerHTML=groups.map(g=>`<a href="#${encodeURIComponent(g)}">${g}</a>`).join('');
+  main.innerHTML=groups.map(g=>`<h2 id="${encodeURIComponent(g)}">${g}</h2><div class="grid" data-g="${g}"></div>`).join('')+'<p id="empty" hidden>Nothing found.</p>';
+  const grids=Object.fromEntries([...main.querySelectorAll('.grid')].map(d=>[d.dataset.g,d]));
+
+  function render(){
+    const q=document.getElementById('q').value.trim().toLowerCase(),tone=document.getElementById('tone').value;
+    let n=0;
+    for(const g of groups)grids[g].innerHTML='';
+    for(const x of ok){
+      if(q&&!x.name.toLowerCase().includes(q))continue;
+      if(tone?(x.tones.length?!(x.tones.length===1&&x.tones[0]===tone):hasVariant.has(x.base)):x.tones.length)continue;
+      const b=document.createElement('button');b.textContent=x.e;b.title=x.name;grids[x.group].append(b);n++;
+    }
+    for(const g of groups){const hide=!grids[g].children.length;grids[g].hidden=hide;grids[g].previousElementSibling.hidden=hide}
+    document.getElementById('empty').hidden=n>0;
+  }
+  render();
+  q.oninput=tone.onchange=render;
+  main.onclick=ev=>{const b=ev.target.closest('button');if(!b)return;
+    copy(b.textContent).then(()=>{toast.textContent=b.textContent+' copied';toast.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>toast.classList.remove('show'),1200)})};
+});
+</script>
